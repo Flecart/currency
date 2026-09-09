@@ -1,0 +1,30 @@
+# Build output and local tooling
+.gradle/
+.kotlin/
+**/build/
+dist/
+.emulator/
+.idea/
+*.iml
+local.properties
+.DS_Store
+.agents/
+.codex/
+
+# Personal records and local notes must never be published
+*.csv
+*.backup
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+local-notes/
+
+# Credentials, signing keys, and machine configuration
+.env
+.env.*
+*.jks
+*.keystore
+*.pem
+*.key
+key.properties
