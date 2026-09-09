@@ -1,29 +1,29 @@
 # Validation
 
-Version 0.2.0 was validated with synthetic fixtures on 2026-09-09.
+Version 0.3.0 was validated with synthetic fixtures on 2026-09-09.
 
 | Check | Result |
 | --- | --- |
-| JVM core tests | 25 passed |
-| Android instrumentation tests | 7 passed on an Android 14 emulator |
+| JVM core tests | 37 passed |
+| Android instrumentation tests | 9 passed on an Android 14 emulator |
 | Debug app and test APK assembly | Passed |
 | Android lint | No errors; 16 advisory warnings |
 | APK signature verification | Passed |
-| Installer | Installed and launched the app on an emulator and an Android 16 phone |
+| Installer | Installed and launched 0.3.0 on an Android 14 emulator; 0.2.0 was also tested on an Android 16 phone |
 
 ## Accounting and parsing
 
-Tests cover proportional and reduced-rate earnings, project mappings, pauses, negative balances, overlap precedence, activation clipping, future records, weighted calibration, fallback pricing, renames, archive flags, malformed backups, broken references, duplicate IDs, stable-file retries, revoked access, cancellation, and CSV quoting/time zones.
+Tests cover small-cost rate weighting, afternoon sleep boundaries, nine-hour nightly allowances, split/overlapping sleep, daylight-saving transitions, reporting-window context, per-session credit allocation, proportional and reduced-rate earnings, project mappings, pauses, negative balances, overlap precedence, activation clipping, future records, weighted calibration, fallback pricing, renames, archive flags, malformed backups, broken references, duplicate IDs, stable-file retries, revoked access, cancellation, and CSV quoting/time zones.
 
 ## Persistence and UI
 
-Device tests verify setup, the balance screen, archive filtering, idempotent imports, record corrections/deletions, and mapping preservation.
+Device tests verify signed session earnings and costs, free sleep, setup, the balance screen, archive filtering, idempotent imports, record corrections/deletions, and mapping preservation.
 
-The migration test creates a database from the committed version-1 schema and opens it through the version-2 migration. Records, trial activation, original leisure price, and document URI survive. Named activity mappings update and archive flags are reimported even when the source hash has not changed.
+Migration tests create databases from the committed version-1 and version-2 schemas and upgrade both to version 3. Records, trial activation, original leisure price, archive state, and document URI survive. New spending mappings and the saved accounting time zone are verified. The version-1 upgrade still reimports archive flags even when the source hash has not changed.
 
 ## STT integration
 
-The official STT 1.59 APK was tested in an isolated Android 14 emulator using synthetic data:
+The official STT 1.59 APK was previously tested for the unchanged integration in an isolated Android 14 emulator using synthetic data:
 
 1. Configure automatic backup in STT and select the same document in Currency.
 2. Empty the test document; Currency's request causes STT to rewrite it and initialize a zero-credit trial.

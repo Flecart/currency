@@ -133,12 +133,13 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
     val stored = state.stored ?: return
     val trial = stored.trial ?: return
     val now = System.currentTimeMillis()
-    val today = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    val week = LocalDate.now().minusDays(6).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    val total = Economy.account(Economy.totals(stored.snapshot, stored.kinds, trial.activatedAt, now), trial)
-    val todayTime = Economy.totals(stored.snapshot, stored.kinds, maxOf(today, trial.activatedAt), now)
+    val zone = ZoneId.of(trial.zoneId)
+    val today = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    val week = LocalDate.now(zone).minusDays(6).atStartOfDay(zone).toInstant().toEpochMilli()
+    val total = Economy.account(Economy.totals(stored.snapshot, stored.kinds, trial.activatedAt, now, zone), trial)
+    val todayTime = Economy.totals(stored.snapshot, stored.kinds, maxOf(today, trial.activatedAt), now, zone)
     val todayAccount = Economy.account(todayTime, trial)
-    val weekTime = Economy.totals(stored.snapshot, stored.kinds, maxOf(week, trial.activatedAt), now)
+    val weekTime = Economy.totals(stored.snapshot, stored.kinds, maxOf(week, trial.activatedAt), now, zone)
     val weekAccount = Economy.account(weekTime, trial)
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         if (state.error != null) item { ErrorCard(state.error, onChooseFile) }
@@ -161,11 +162,11 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
             }
         }
         item {
-            SectionLabel("Today", LocalDate.now().format(DateTimeFormatter.ofPattern("EEE, d MMM")))
+            SectionLabel("Today", LocalDate.now(zone).format(DateTimeFormatter.ofPattern("EEE, d MMM")))
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard("Work", duration(todayTime.workMs + todayTime.sideMs), "+${decimal(todayAccount.earned)} C", Forest, Modifier.weight(1f))
-                MetricCard("Svago", duration(todayTime.leisureMs), "−${decimal(todayAccount.spent)} C", Warm, Modifier.weight(1f))
+                MetricCard("Spending", duration(todayTime.spendingMs), "−${decimal(todayAccount.spent)} C", Warm, Modifier.weight(1f))
             }
         }
         item {
@@ -174,7 +175,8 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
             Surface(color = Color.White, shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     ValueRow("Work earned · ${duration(weekTime.workMs + weekTime.sideMs)}", "+${decimal(weekAccount.earned)} C", Forest)
-                    ValueRow("Svago spent · ${duration(weekTime.leisureMs)}", "−${decimal(weekAccount.spent)} C", Warm)
+                    ValueRow("Svago · ${duration(weekTime.leisureMs)}", "−${decimal(Economy.account(Totals(leisureMs = weekTime.leisureMs), trial).spent)} C", Warm)
+                    ValueRow("Small costs · ${duration(weekTime.spendingMs - weekTime.leisureMs)}", "−${decimal(Economy.account(weekTime.copy(leisureMs = 0), trial).spent)} C", Warm)
                     HorizontalDivider(color = Paper)
                     ValueRow("Net change", "${decimal(weekAccount.balance)} C", Ink)
                 }
@@ -184,7 +186,7 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
             Surface(color = Color(0xFFE8ECDC), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("A steady exchange", fontWeight = FontWeight.SemiBold)
-                    Text("50 minutes of main work earns 1 C.\n200 minutes of esplorazioni or sides earns 1 C.\n${decimal(Economy.leisureMinutesPerCredit(trial), 1)} minutes of svago costs 1 C.", lineHeight = 24.sp)
+                    Text("50 minutes of main work earns 1 C.\n200 minutes of esplorazioni or sides earns 1 C.\n${decimal(Economy.leisureMinutesPerCredit(trial), 1)} minutes of svago costs 1 C.\nCooking, travel and chargeable sleep cost 10% of svago; friends cost 5%.", lineHeight = 24.sp)
                     Text(if (trial.provisional) "Provisional rate: there wasn’t enough work and leisure history to calibrate."
                         else "Calibrated once from your recent routine. Prices stay fixed during the trial.", fontSize = 12.sp, color = Muted, lineHeight = 18.sp)
                 }
@@ -209,13 +211,17 @@ private fun MetricCard(label: String, time: String, credits: String, color: Colo
 private fun ActivityLog(stored: StoredState, archived: Boolean = false) {
     val trial = stored.trial ?: return
     val activities = stored.snapshot.activities.associateBy { it.id }
-    val records = stored.snapshot.records.filter { it.end > trial.activatedAt && it.end <= System.currentTimeMillis() && activities[it.activityId]?.archived == archived && (archived || stored.kinds[it.activityId] != Kind.NEUTRAL) }
+    val now = System.currentTimeMillis()
+    val ledger = remember(stored, now) {
+        Economy.ledger(stored.snapshot, stored.kinds, trial.activatedAt, now, ZoneId.of(trial.zoneId))
+    }
+    val records = stored.snapshot.records.filter { it.end > trial.activatedAt && it.end <= now && activities[it.activityId]?.archived == archived && (archived || stored.kinds[it.activityId] != Kind.NEUTRAL) }
         .sortedByDescending { it.end }.take(100)
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text(if (archived) "Archived sessions" else "Your recent activity", fontWeight = FontWeight.Bold, fontSize = 26.sp)
             Spacer(Modifier.height(8.dp))
-            Text(if (archived) "Sessions from activities archived in STT. Archiving hides them from the main lists; their credits still count." else "Completed work and svago since the trial began. Corrections in STT are reflected after the next successful refresh.", color = Muted, lineHeight = 22.sp)
+            Text(if (archived) "Sessions from activities archived in STT. Archiving hides them from the main lists; their credits still count." else "Completed earning and spending sessions since the trial began. Corrections in STT are reflected after the next successful refresh.", color = Muted, lineHeight = 22.sp)
         }
         if (archived) {
             items(stored.activities.filter { it.present && it.archived }.sortedBy { it.name }, key = { "archived-${it.id}" }) {
@@ -230,19 +236,24 @@ private fun ActivityLog(stored: StoredState, archived: Boolean = false) {
         items(records, key = { it.id }) { record ->
             val paused = record.tags.any { stored.snapshot.tags[it]?.trim()?.equals("Pausa", true) == true }
             val kind = stored.kinds[record.activityId]
+            val credits = Economy.account(ledger.sessions[record.id] ?: Totals(), trial).balance
             Surface(color = Color.White, shape = RoundedCornerShape(16.dp)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(activities[record.activityId]?.name ?: "Activity", fontWeight = FontWeight.SemiBold)
                         Text(timestamp(record.end), fontSize = 12.sp, color = Muted)
-                        Text(if (paused && kind in setOf(Kind.WORK, Kind.SIDE)) "Pause · neutral" else when (kind) { Kind.WORK -> "Work · earns"; Kind.SIDE -> "Side activity · earns 25%"; Kind.LEISURE -> "Svago · spends"; else -> "Neutral" },
-                            fontSize = 12.sp, color = if (kind == Kind.LEISURE) Warm else Muted)
+                        Text(if (paused && kind in setOf(Kind.WORK, Kind.SIDE)) "Pause · neutral" else when (kind) { Kind.WORK -> "Work · earns"; Kind.SIDE -> "Side activity · earns 25%"; Kind.LEISURE -> "Svago · spends"; Kind.COOKING, Kind.TRAVEL -> "Spends 10% of svago"; Kind.FRIENDS -> "Spends 5% of svago"; Kind.SLEEP -> "Afternoon / excess night sleep · 10%"; else -> "Neutral" },
+                            fontSize = 12.sp, color = if (credits.signum() < 0) Warm else Muted)
                     }
-                    Text(duration(record.end - maxOf(record.start, trial.activatedAt)), fontWeight = FontWeight.Medium)
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(sessionCredits(credits), fontWeight = FontWeight.SemiBold,
+                            color = when (credits.signum()) { -1 -> Warm; 1 -> Forest; else -> Muted })
+                        Text(duration(record.end - maxOf(record.start, trial.activatedAt)), fontSize = 12.sp, color = Muted)
+                    }
                 }
             }
         }
-        item { Text("Session durations are shown above. Overlaps count once: svago takes precedence, then main work, then side activities.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp) }
+        item { Text("Credits reflect each session’s contribution after overlaps. Spending takes precedence over earning; higher prices win. Ties go to the earliest-started session, then its STT ID. Zero can mean free sleep, paused work, or overlapping time. Amounts are rounded for display; the balance uses full precision.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp) }
     }
 }
 
@@ -259,8 +270,12 @@ private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
                     ValueRow("Main work earns 1 C", "50 minutes", Forest)
                     ValueRow("Esplorazioni / sides earn 1 C", "200 minutes", Forest)
                     ValueRow("Svago costs 1 C", "${decimal(Economy.leisureMinutesPerCredit(trial), 1)} minutes", Warm)
+                    ValueRow("Cooking / travel / charged sleep", "10% of svago", Warm)
+                    ValueRow("Friends", "5% of svago", Warm)
                     HorizontalDivider(color = Paper)
-                    Text("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise, social time, and other activities are neutral.", color = Muted, lineHeight = 23.sp)
+                    Text("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise and unlisted activities are neutral.", color = Muted, lineHeight = 23.sp)
+                    Text("Sleep from 12:00 to 18:00 costs 10% of svago. Each night runs from 18:00 to noon: only recorded sleep above nine hours costs credits. Split sessions share the allowance; overlapping sleep counts once. Afternoon sleep is separate. Time zone: ${trial.zoneId}.", color = Muted, lineHeight = 23.sp)
+                    Text("Small costs apply to all sessions since the trial began, including earlier sessions. Your original svago rate stays unchanged.", color = Muted, lineHeight = 23.sp)
                     Text("Thesis, oxford, zhijing, aria and Work-category activities earn at the main rate. Esplorazioni and sides earn 25%, even in Work. Lab tags are equivalent; Pausa earns nothing.", color = Muted, lineHeight = 23.sp)
                 }
             }
@@ -274,11 +289,11 @@ private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
         }
         item { SectionLabel("Activity mapping", "Kept across renames") }
         items(stored.activities.filter { it.present && !it.archived }.sortedWith(compareBy({ it.kind }, { it.name })), key = { it.id }) { activity ->
-            ValueRow(activity.name, when (Kind.valueOf(activity.kind)) { Kind.WORK -> "Earns"; Kind.SIDE -> "Earns 25%"; Kind.LEISURE -> "Spends"; Kind.NEUTRAL -> "Neutral" },
-                when (Kind.valueOf(activity.kind)) { Kind.WORK, Kind.SIDE -> Forest; Kind.LEISURE -> Warm; Kind.NEUTRAL -> Muted })
+            ValueRow(activity.name, when (Kind.valueOf(activity.kind)) { Kind.WORK -> "Earns"; Kind.SIDE -> "Earns 25%"; Kind.LEISURE -> "Spends"; Kind.COOKING, Kind.TRAVEL -> "Spends 10%"; Kind.FRIENDS -> "Spends 5%"; Kind.SLEEP -> "Conditional 10%"; Kind.NEUTRAL -> "Neutral" },
+                when (Kind.valueOf(activity.kind)) { Kind.WORK, Kind.SIDE -> Forest; Kind.LEISURE, Kind.COOKING, Kind.TRAVEL, Kind.FRIENDS, Kind.SLEEP -> Warm; Kind.NEUTRAL -> Muted })
         }
         item {
-            Text("New activities in STT’s Work category earn automatically. Other new activities remain neutral. Mappings persist across renames. Archived activities appear in the Archived tab.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            Text("Named activities use the rates above, regardless of category. Other new activities in STT’s Work category earn automatically; the rest remain neutral. Mappings persist across renames. Archived activities appear in the Archived tab.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onOpenStt, modifier = Modifier.fillMaxWidth()) { Text("Open Simple Time Tracker") }
         }
@@ -322,6 +337,11 @@ private fun SyncFooter(stored: StoredState, syncing: Boolean) {
     }
 }
 
+private fun sessionCredits(value: BigDecimal): String {
+    if (value.signum() == 0) return "0.00 C"
+    val amount = if (value.abs() < BigDecimal("0.01")) "<0.01" else decimal(value.abs())
+    return (if (value.signum() > 0) "+" else "−") + amount + " C"
+}
 private fun decimal(value: BigDecimal, places: Int = 2, rounding: RoundingMode = RoundingMode.HALF_UP): String = value.setScale(places, rounding).toPlainString()
 private fun duration(ms: Long): String {
     val minutes = ms / 60_000

@@ -17,8 +17,8 @@ Open Currency to see your balance, recent activity, and how much work would brin
 
 | View | What you see |
 | --- | --- |
-| **Today** | Balance, work and leisure totals, weekly summary, and the current exchange rate |
-| **Activity** | Recent completed earning and spending sessions |
+| **Today** | Balance, work and spending totals, weekly summary, and the current exchange rate |
+| **Activity** | Recent completed sessions with credits earned or spent |
 | **Archived** | Activities archived in STT and their recent sessions, kept out of the main lists |
 | **Rules** | Earning rates, activity mappings, and the trial's calibration |
 
@@ -27,7 +27,7 @@ Open Currency to see your balance, recent activity, and how much work would brin
 - Keeps your trial and document connection across app updates.
 - Stores data locally, with no internet permission, analytics, cloud backup, or background service.
 
-This is a personal experiment with fixed activity mappings, not a general-purpose habit coach. The current version is **0.2.0**. See the [changelog](CHANGELOG.md).
+This is a personal experiment with fixed activity mappings, not a general-purpose habit coach. The current version is **0.3.0**. See the [changelog](CHANGELOG.md).
 
 ## Get started
 
@@ -38,7 +38,7 @@ You'll need **Android 8.0+** and **Simple Time Tracker**. The integration has be
 3. Open Currency, tap **Choose backup & start trial**, and select **that same document**. Use an STT backup, not a CSV export.
 4. Continue tracking in STT. Stop or switch a timer before expecting that session to affect Currency.
 
-The first successful import starts your balance at **zero**. Earlier records only calibrate the leisure price. If file access changes, use **Reconnect** with the same STT dataset.
+The first successful import starts your balance at **zero**. Earlier records never earn or spend credits. If file access changes, use **Reconnect** with the same STT dataset.
 
 ## The economy
 
@@ -47,11 +47,16 @@ The first successful import starts your balance at **zero**. Earlier records onl
 | Main work | **50 minutes → 1 C** |
 | `esplorazioni` and `sides` | **200 minutes → 1 C** (25% of main work) |
 | `svago` | Spends credits at the trial's calibrated rate |
+| `cooking` and `travel` | Cost 10% of the svago rate |
+| `friends` | Costs 5% of the svago rate |
+| `sleep` | Afternoon sleep and nightly sleep above nine hours cost 10% of svago |
 | Other activities | Neutral unless mapped to work |
 
 Main work includes activities in STT's `Work` category and the named projects `thesis`, `oxford`, `zhijing`, and `aria`. Names are case-insensitive. `Pausa` tags suppress work earnings; all `svago` still costs.
 
-The leisure price uses the preceding 28 days so that replaying the baseline would spend 105% of its earnings. It stays fixed during the 14-day trial and continues afterward. Negative balances are allowed; there are no penalties, caps, decay, streak resets, or neglect bonuses.
+The leisure price uses the preceding 28 days so that baseline svago spending equals 105% of its work earnings. Small costs are additional. It stays fixed during the 14-day trial and continues afterward. Negative balances are allowed; there are no penalties, caps, decay, streak resets, or neglect bonuses.
+
+Afternoon means 12:00–18:00. Nights run from 18:00 to the following noon; split sleep sessions share a nine-hour allowance. The accounting time zone is saved at setup or upgrade.
 
 See [economy rules](docs/economy.md) for overlap handling, fallback prices, and upgrade behavior.
 

@@ -33,8 +33,26 @@ class DashboardTest {
         compose.onNodeWithText("-1.00").assertIsDisplayed()
         compose.onNodeWithText("50 work minutes to return to zero.").assertIsDisplayed()
         compose.onNodeWithText("Rules").performScrollTo().performClick()
-        compose.onNodeWithText("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise, social time, and other activities are neutral.").assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise and unlisted activities are neutral."))
+        compose.onNodeWithText("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise and unlisted activities are neutral.").assertIsDisplayed()
     }
+    @Test fun sessionRowsShowEarningsSmallCostsAndFreeSleep() {
+        val now = java.time.LocalDate.now().atTime(11, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() - 86_400_000
+        val activities = listOf(Activity(1, "Thesis"), Activity(2, "Cooking"), Activity(3, "Friends"), Activity(4, "Sleep"))
+        val snapshot = Snapshot(activities, listOf(Record(1, 1, now - 9_000_000, now - 6_000_000),
+            Record(2, 2, now - 6_000_000, now - 3_000_000), Record(3, 3, now - 3_000_000, now),
+            Record(4, 4, now - 18_000_000, now - 12_000_000)), emptyMap())
+        val kinds = mappings(snapshot)
+        val stored = StoredState(snapshot, kinds, Trial(now - 20_000_000, 0, 0, Totals()), null,
+            activities.map { ActivityRow(it.id, it.name, kinds.getValue(it.id).name) })
+        compose.setContent { CurrencyApp(ScreenState(stored, loading = false), {}, {}) }
+        compose.onNodeWithText("Activity").performClick()
+        for (amount in listOf("−0.05 C", "−0.10 C", "+1.00 C", "0.00 C")) {
+            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(amount))
+            compose.onNodeWithText(amount).assertIsDisplayed()
+        }
+    }
+
     @Test fun archivedSessionsAreHiddenFromActivityAndAvailableSeparately() {
         val now = System.currentTimeMillis()
         val snapshot = Snapshot(listOf(Activity(1, "Current"), Activity(2, "Old project", archived = true)),

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-09-09
+
+- Charge cooking and travel at 10% of the svago rate, and friends at 5%.
+- Charge afternoon sleep (12:00–18:00) and the portion above nine hours per night at 10% of svago.
+- Share nightly allowances across split sessions, deduplicate overlapping sleep, and preserve a fixed accounting time zone.
+- Show signed credits on recent and archived session rows, using the same overlap allocation as the balance.
+- Separate svago and small costs in the weekly summary.
+- Upgrade existing accounts without changing their original svago price; new costs apply from trial activation.
+
 ## 0.2.0 — 2026-09-09
 
 - Add an Archived tab and hide archived STT activities from the main lists.

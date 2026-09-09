@@ -16,8 +16,9 @@ data class TrialRow(
     @PrimaryKey val id: Int = 1, val activatedAt: Long, val baselineStart: Long, val baselineEnd: Long,
     val baselineWorkMs: Long, val baselineLeisureMs: Long,
     @ColumnInfo(defaultValue = "0") val baselineSideMs: Long = 0,
+    @ColumnInfo(defaultValue = "'UTC'") val zoneId: String = java.time.ZoneId.systemDefault().id,
 ) {
-    fun domain() = Trial(activatedAt, baselineStart, baselineEnd, Totals(baselineWorkMs, baselineLeisureMs, baselineSideMs))
+    fun domain() = Trial(activatedAt, baselineStart, baselineEnd, Totals(baselineWorkMs, baselineLeisureMs, baselineSideMs), zoneId)
 }
 @Entity(tableName = "sync")
 data class SyncRow(
@@ -42,10 +43,21 @@ interface CurrencyDao {
     @Query("UPDATE activities SET present = 0") suspend fun markActivitiesAbsent()
 }
 
-@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 2, exportSchema = true)
+@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 3, exportSchema = true)
 abstract class CurrencyDatabase : RoomDatabase() {
     abstract fun dao(): CurrencyDao
     companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trial ADD COLUMN zoneId TEXT NOT NULL DEFAULT 'UTC'")
+                db.execSQL("UPDATE trial SET zoneId = ?", arrayOf(java.time.ZoneId.systemDefault().id))
+                for (kind in listOf(Kind.COOKING, Kind.TRAVEL, Kind.FRIENDS, Kind.SLEEP)) {
+                    db.execSQL("UPDATE activities SET kind = ? WHERE lower(trim(name)) = ?",
+                        arrayOf(kind.name, kind.name.lowercase(java.util.Locale.ROOT)))
+                }
+            }
+        }
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activities ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
@@ -94,7 +106,7 @@ class CurrencyRepository(private val db: CurrencyDatabase) {
         if (dao.trial() == null) {
             val trial = Economy.calibrate(snapshot, kinds, now)
             dao.putTrial(TrialRow(activatedAt = trial.activatedAt, baselineStart = trial.baselineStart,
-                baselineEnd = trial.baselineEnd, baselineWorkMs = trial.baseline.workMs, baselineLeisureMs = trial.baseline.leisureMs, baselineSideMs = trial.baseline.sideMs))
+                baselineEnd = trial.baselineEnd, baselineWorkMs = trial.baseline.workMs, baselineLeisureMs = trial.baseline.leisureMs, baselineSideMs = trial.baseline.sideMs, zoneId = trial.zoneId))
         }
         dao.putSync(SyncRow(uri = uri, documentName = documentName, hash = hash, lastRead = now,
             lastChanged = if (previous?.hash == hash) previous.lastChanged else now))
