@@ -47,7 +47,7 @@ class DashboardTest {
             activities.map { ActivityRow(it.id, it.name, kinds.getValue(it.id).name) })
         compose.setContent { CurrencyApp(ScreenState(stored, loading = false), {}, {}) }
         compose.onNodeWithText("Activity").performClick()
-        for (amount in listOf("−0.05 C", "−0.10 C", "+1.00 C", "0.00 C")) {
+        for (amount in listOf("−0.05 C", "−0.25 C", "+1.00 C", "0.00 C")) {
             compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(amount))
             compose.onNodeWithText(amount).assertIsDisplayed()
         }
@@ -71,6 +71,59 @@ class DashboardTest {
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Current"))
         compose.onNodeWithText("Current").assertIsDisplayed()
         compose.onNodeWithText("Old project").assertDoesNotExist()
+    }
+
+    @Test fun summaryRangesAreIndependentValidatedAndRemembered() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("summary_ranges", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val now = System.currentTimeMillis()
+        val stored = StoredState(Snapshot(emptyList(), emptyList(), emptyMap()), emptyMap(),
+            Trial(now - 1000, 0, 0, Totals()), null, emptyList())
+        compose.setContent { CurrencyApp(ScreenState(stored, loading = false), {}, {}) }
+        compose.onNodeWithText("Today ▾").performScrollTo().performClick()
+        compose.onNodeWithText("Last month").performClick()
+        compose.onNodeWithText("Last month ▾").assertExists()
+        compose.onNodeWithText("Last 7 days ▾").performScrollTo().performClick()
+        compose.onNodeWithText("Last N days").performClick()
+        compose.onNodeWithText("Number of days").performTextReplacement("0")
+        compose.onNodeWithText("Apply").assertIsNotEnabled()
+        compose.onNodeWithText("Number of days").performTextReplacement("14")
+        compose.onNodeWithText("Apply").performClick()
+        compose.onNodeWithText("Last 14 days ▾").assertExists()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals("LAST_MONTH", prefs.getString("overview", null))
+            org.junit.Assert.assertEquals("LAST_DAYS", prefs.getString("breakdown", null))
+            org.junit.Assert.assertEquals(14, prefs.getInt("breakdown.days", 0))
+        }
+        compose.onNodeWithText("Activity").performClick()
+        compose.onNodeWithText("Summary").performClick()
+        compose.onNodeWithText("Last month ▾").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Last 14 days ▾").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { prefs.edit().clear().commit() }
+    }
+
+    @Test fun breakdownShowsActivityHoursCreditsAndSpendingFilter() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("summary_ranges", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+        val now = System.currentTimeMillis()
+        val activities = listOf(Activity(1, "Thesis"), Activity(2, "Cooking", archived = true))
+        val snapshot = Snapshot(activities, listOf(Record(1, 1, now - 6_000_000, now),
+            Record(2, 2, now - 3_000_000, now)), emptyMap())
+        val kinds = mappings(snapshot)
+        val stored = StoredState(snapshot, kinds, Trial(now - 6_000_000, 0, 0, Totals()), null,
+            activities.map { ActivityRow(it.id, it.name, kinds.getValue(it.id).name, archived = it.archived) })
+        compose.setContent { CurrencyApp(ScreenState(stored, loading = false), {}, {}) }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("By activity"))
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("+1.0000 C"))
+        compose.onNodeWithText("+1.0000 C").assertIsDisplayed()
+        compose.onNodeWithText("1.67 h recorded · 0.83 h counted").assertExists()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Cooking · Archived"))
+        compose.onNodeWithText("−0.2500 C").assertExists()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("By activity"))
+        compose.onNode(hasText("Spent") and hasClickAction()).performClick()
+        compose.onNodeWithText("Thesis").assertDoesNotExist()
+        compose.onNodeWithText("Cooking · Archived").assertExists()
     }
 
 }

@@ -39,3 +39,7 @@ The installer was exercised with actual APK installation and launch. Additional 
 ## Known limits
 
 See [integration details](docs/integration.md) for freshness limitations, active timers, document-provider behavior, and identifier reuse. Test fixtures contain synthetic data; personal tracking exports and local validation notes are excluded from the repository.
+
+## September 18 changes
+
+41 JVM tests passed; debug app and instrumentation APKs built successfully. Coverage now includes chores, People as an alias for Friends, calendar summary windows, historical boundary clipping, and per-activity reconciliation. The database version-5 upgrade was installed on the connected phone and verified to map People to FRIENDS, preserve the trial, and pass SQLite integrity checks. Instrumentation tests compiled, but emulator execution did not complete; the new UI checks are not yet runtime-validated.

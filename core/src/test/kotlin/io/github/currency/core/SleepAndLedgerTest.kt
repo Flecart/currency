@@ -21,13 +21,13 @@ class SleepAndLedgerTest {
 
     @Test fun `small costs follow the calibrated svago price and override Work category`() {
         for ((name, kind) in listOf(" cooking " to Kind.COOKING, "TRAVEL" to Kind.TRAVEL,
-            "Friends" to Kind.FRIENDS, "Sleep" to Kind.SLEEP)) {
+            "Friends" to Kind.FRIENDS, " PEOPLE " to Kind.FRIENDS, "Sleep" to Kind.SLEEP)) {
             assertEquals(kind, classify(Activity(99, name, setOf("Work"))))
         }
         val trial = Trial(0, 0, 0, Totals(workMs = 6_000_000, leisureMs = 3_000_000))
         val result = Economy.account(Totals(cookingMs = 3_000_000, travelMs = 3_000_000,
             friendsMs = 3_000_000, sleepMs = 3_000_000), trial)
-        credit("0.735", result.spent)
+        credit("1.68", result.spent)
         val s = snapshot(Record(1, 2, 0, 3_000_000, setOf(1))).copy(tags = mapOf(1L to "Pausa"))
         assertEquals(3_000_000L, totals(s, 0, 3_000_000).cookingMs)
     }
@@ -44,7 +44,7 @@ class SleepAndLedgerTest {
         val s = snapshot(record(1, "2026-09-08T11:00", "2026-09-08T19:00"))
         assertEquals(6 * hour, totals(s).sleepMs)
         val nap = snapshot(record(1, "2026-09-08T13:00", "2026-09-08T14:00"))
-        credit("0.12", Economy.account(totals(nap), Trial(0, 0, 0, Totals())).spent)
+        credit("0.30", Economy.account(totals(nap), Trial(0, 0, 0, Totals())).spent)
     }
 
     @Test fun `split nights gaps and duplicates share one allowance without counting naps`() {

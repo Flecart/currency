@@ -17,7 +17,7 @@ Open Currency to see your balance, recent activity, and how much work would brin
 
 | View | What you see |
 | --- | --- |
-| **Today** | Balance, work and spending totals, weekly summary, and the current exchange rate |
+| **Summary** | Balance, two independently selectable day/week/month credit summaries, and the current exchange rate |
 | **Activity** | Recent completed sessions with credits earned or spent |
 | **Archived** | Activities archived in STT and their recent sessions, kept out of the main lists |
 | **Rules** | Earning rates, activity mappings, and the trial's calibration |
@@ -46,10 +46,11 @@ The first successful import starts your balance at **zero**. Earlier records nev
 | --- | --- |
 | Main work | **50 minutes → 1 C** |
 | `esplorazioni` and `sides` | **200 minutes → 1 C** (25% of main work) |
+| `chores` | **50 minutes → 0.1 C** (10% of main work) |
 | `svago` | Spends credits at the trial's calibrated rate |
-| `cooking` and `travel` | Cost 10% of the svago rate |
-| `friends` | Costs 5% of the svago rate |
-| `sleep` | Afternoon sleep and nightly sleep above nine hours cost 10% of svago |
+| `cooking` and `travel` | Cost 25% of the svago rate |
+| `people` / `friends` | Costs 5% of the svago rate |
+| `sleep` | Afternoon sleep and nightly sleep above nine hours cost 25% of svago |
 | Other activities | Neutral unless mapped to work |
 
 Main work includes activities in STT's `Work` category and the named projects `thesis`, `oxford`, `zhijing`, and `aria`. Names are case-insensitive. `Pausa` tags suppress work earnings; all `svago` still costs.

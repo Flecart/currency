@@ -96,4 +96,23 @@ class EconomyTest {
         assertEquals(Economy.totals(s, mappings(s), 0, 11000), Economy.totals(archived, mappings(archived), 0, 11000))
     }
 
+    @Test fun `chores earn a tenth respect pauses and overlaps and do not calibrate prices`() {
+        val activities = listOf(Activity(1, " CHORES ", setOf("Work")), Activity(2, "sides"), Activity(3, "svago"))
+        val s = Snapshot(activities, listOf(Record(1, 1, 0, 3_000_000)), mapOf(1L to "Pausa"))
+        assertEquals(Kind.CHORES, classify(activities.first()))
+        val ledger = Economy.ledger(s, mappings(s), 0, 3_000_000)
+        assertEquals(Totals(choresMs = 3_000_000), ledger.totals)
+        equalCredit("0.1", Economy.account(ledger.totals, neutralRate).earned)
+        equalCredit("0", Economy.account(ledger.totals, neutralRate).spent)
+        equalCredit("0.1", Economy.account(ledger.sessions.getValue(1), neutralRate).balance)
+        val paused = s.copy(records = listOf(s.records.first().copy(tags = setOf(1))))
+        assertEquals(Totals(), Economy.totals(paused, mappings(paused), 0, 3_000_000))
+        val overlap = s.copy(records = s.records + Record(2, 2, 0, 2_000_000) + Record(3, 3, 0, 1_000_000))
+        assertEquals(Totals(sideMs = 1_000_000, leisureMs = 1_000_000, choresMs = 1_000_000),
+            Economy.totals(overlap, mappings(overlap), 0, 3_000_000))
+        assertEquals(Totals(), Economy.calibrate(s, mappings(s), 3_000_000).baseline)
+        val calibrated = Trial(1, 0, 1, Totals(workMs = 6_000_000, leisureMs = 3_000_000))
+        equalCredit("0.1", Economy.account(ledger.totals, calibrated).earned)
+    }
+
 }

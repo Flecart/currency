@@ -10,12 +10,12 @@ import java.util.TreeSet
 
 data class Totals(
     val workMs: Long = 0, val leisureMs: Long = 0, val sideMs: Long = 0,
-    val cookingMs: Long = 0, val travelMs: Long = 0, val friendsMs: Long = 0, val sleepMs: Long = 0,
+    val cookingMs: Long = 0, val travelMs: Long = 0, val friendsMs: Long = 0, val sleepMs: Long = 0, val choresMs: Long = 0,
 ) {
     val spendingMs get() = leisureMs + cookingMs + travelMs + friendsMs + sleepMs
     operator fun plus(other: Totals) = Totals(workMs + other.workMs, leisureMs + other.leisureMs,
         sideMs + other.sideMs, cookingMs + other.cookingMs, travelMs + other.travelMs,
-        friendsMs + other.friendsMs, sleepMs + other.sleepMs)
+        friendsMs + other.friendsMs, sleepMs + other.sleepMs, choresMs + other.choresMs)
 }
 data class Trial(val activatedAt: Long, val baselineStart: Long, val baselineEnd: Long, val baseline: Totals,
     val zoneId: String = ZoneId.systemDefault().id) {
@@ -36,26 +36,27 @@ object Economy {
     private val nightAllowanceMs = Duration.ofHours(9).toMillis()
 
     fun totals(snapshot: Snapshot, kinds: Map<Long, Kind>, from: Long, until: Long,
-        zone: ZoneId = ZoneId.systemDefault()): Totals = ledger(snapshot, kinds, from, until, zone).totals
+        zone: ZoneId = ZoneId.systemDefault(), completedThrough: Long = until): Totals =
+        ledger(snapshot, kinds, from, until, zone, completedThrough).totals
 
     /** Spending wins over earning; equal prices use earliest start, then record ID. */
     fun ledger(snapshot: Snapshot, kinds: Map<Long, Kind>, from: Long, until: Long,
-        zone: ZoneId = ZoneId.systemDefault()): Ledger {
+        zone: ZoneId = ZoneId.systemDefault(), completedThrough: Long = until): Ledger {
         if (until <= from) return Ledger()
-        val completed = snapshot.records.filter { it.end <= until && it.end > it.start }
+        val completed = snapshot.records.filter { it.end <= completedThrough && it.end > it.start }
         // Keep pre-window sleep as context so midnight and trial activation cannot reset the allowance.
         val sleepCharges = sleepCharges(completed.filter { kinds[it.activityId] == Kind.SLEEP }, zone)
         data class Event(val time: Long, val record: Record? = null, val starts: Boolean = false, val sleepDelta: Int = 0)
         val events = mutableListOf<Event>()
         val sessions = linkedMapOf<Long, Totals>()
         for (record in completed) {
-            if (record.end <= from) continue
+            if (record.end <= from || record.start >= until) continue
             sessions[record.id] = Totals()
             val kind = kinds[record.activityId] ?: Kind.NEUTRAL
             val paused = record.tags.any { snapshot.tags[it]?.trim()?.equals("Pausa", true) == true }
-            if (kind == Kind.NEUTRAL || (paused && kind in setOf(Kind.WORK, Kind.SIDE))) continue
+            if (kind == Kind.NEUTRAL || (paused && kind in setOf(Kind.WORK, Kind.SIDE, Kind.CHORES))) continue
             events += Event(maxOf(record.start, from), record, true)
-            events += Event(record.end, record)
+            events += Event(minOf(record.end, until), record)
         }
         for ((start, end) in sleepCharges) {
             if (end <= from || start >= until) continue
@@ -89,17 +90,19 @@ object Economy {
     }
 
     private fun priority(kind: Kind): Int = when (kind) {
-        Kind.LEISURE -> 5
-        Kind.COOKING, Kind.TRAVEL, Kind.SLEEP -> 4
-        Kind.FRIENDS -> 3
-        Kind.WORK -> 2
-        Kind.SIDE -> 1
+        Kind.LEISURE -> 6
+        Kind.COOKING, Kind.TRAVEL, Kind.SLEEP -> 5
+        Kind.FRIENDS -> 4
+        Kind.WORK -> 3
+        Kind.SIDE -> 2
+        Kind.CHORES -> 1
         Kind.NEUTRAL -> 0
     }
 
     private fun durationFor(kind: Kind, ms: Long): Totals = when (kind) {
         Kind.WORK -> Totals(workMs = ms)
         Kind.SIDE -> Totals(sideMs = ms)
+        Kind.CHORES -> Totals(choresMs = ms)
         Kind.LEISURE -> Totals(leisureMs = ms)
         Kind.COOKING -> Totals(cookingMs = ms)
         Kind.TRAVEL -> Totals(travelMs = ms)
@@ -153,11 +156,11 @@ object Economy {
 
     private fun weightedWork(totals: Totals): BigDecimal = BigDecimal(totals.workMs) + BigDecimal(totals.sideMs).multiply(BigDecimal("0.25"))
     private fun weightedSpending(totals: Totals): BigDecimal = BigDecimal(totals.leisureMs) +
-        BigDecimal(totals.cookingMs + totals.travelMs + totals.sleepMs).multiply(BigDecimal("0.10")) +
+        BigDecimal(totals.cookingMs + totals.travelMs + totals.sleepMs).multiply(BigDecimal("0.25")) +
         BigDecimal(totals.friendsMs).multiply(BigDecimal("0.05"))
 
     fun account(totals: Totals, trial: Trial): Account {
-        val earned = weightedWork(totals).divide(creditMs, context)
+        val earned = (weightedWork(totals) + BigDecimal(totals.choresMs).multiply(BigDecimal("0.10"))).divide(creditMs, context)
         // Preserve the reference ratio; don't round the rate per minute or per record.
         val spent = if (trial.provisional) weightedSpending(totals).divide(creditMs, context) else
             weightedSpending(totals).multiply(weightedWork(trial.baseline)).multiply(challenge)

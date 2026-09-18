@@ -43,10 +43,22 @@ interface CurrencyDao {
     @Query("UPDATE activities SET present = 0") suspend fun markActivitiesAbsent()
 }
 
-@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 3, exportSchema = true)
+@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 5, exportSchema = true)
 abstract class CurrencyDatabase : RoomDatabase() {
     abstract fun dao(): CurrencyDao
     companion object {
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE activities SET kind = 'FRIENDS' WHERE lower(trim(name)) = 'people'")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE activities SET kind = 'CHORES' WHERE lower(trim(name)) = 'chores'")
+            }
+        }
+
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE trial ADD COLUMN zoneId TEXT NOT NULL DEFAULT 'UTC'")
