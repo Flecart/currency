@@ -12,7 +12,6 @@ class SttGateway(private val context: Context) {
     companion object {
         const val PACKAGE = "com.razeeman.util.simpletimetracker"
         const val ACTION = "$PACKAGE.ACTION_EXTERNAL_AUTOMATIC_BACKUP"
-        val RECEIVER = ComponentName(PACKAGE, "com.example.util.simpletimetracker.feature_notification.recevier.NotificationReceiver")
     }
 
     fun requestBackup() {
@@ -20,12 +19,12 @@ class SttGateway(private val context: Context) {
         catch (_: android.content.pm.PackageManager.NameNotFoundException) {
             throw IOException("Simple Time Tracker is not installed. Install STT, then reopen Currency.")
         }
-        val intent = Intent(ACTION).setComponent(RECEIVER)
-        val receivers = context.packageManager.queryBroadcastReceivers(intent, 0)
-        if (receivers.none { it.activityInfo.exported && it.activityInfo.enabled }) {
-            throw IOException("This STT version does not expose automatic backup requests. Update STT and try again.")
-        }
-        context.sendBroadcast(intent)
+        // STT 1.61 moved external actions from NotificationReceiver to ExternalNotificationReceiver,
+        // so resolve the receiver instead of naming its class.
+        val receiver = context.packageManager.queryBroadcastReceivers(Intent(ACTION).setPackage(PACKAGE), 0)
+            .map { it.activityInfo }.firstOrNull { it.exported && it.enabled }
+            ?: throw IOException("This STT version does not expose automatic backup requests. Update STT and try again.")
+        context.sendBroadcast(Intent(ACTION).setComponent(ComponentName(receiver.packageName, receiver.name)))
     }
 
     fun read(uri: Uri): ByteArray = context.contentResolver.openInputStream(uri)?.use { stream ->

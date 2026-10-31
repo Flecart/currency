@@ -10,11 +10,10 @@ The explicit broadcast is:
 
 ```text
 Package:  com.razeeman.util.simpletimetracker
-Receiver: com.example.util.simpletimetracker.feature_notification.recevier.NotificationReceiver
 Action:   com.razeeman.util.simpletimetracker.ACTION_EXTERNAL_AUTOMATIC_BACKUP
 ```
 
-The spelling `recevier` is part of STT's component name. The receiver was checked against the official STT 1.59 APK.
+Currency resolves the exported STT receiver for this action at request time and addresses it explicitly. STT 1.59 and 1.60 handle it in `...feature_notification.recevier.NotificationReceiver`; STT 1.61 moved it to `...recevier.ExternalNotificationReceiver`. The spelling `recevier` is part of STT's component names.
 
 ## Snapshot handling
 
