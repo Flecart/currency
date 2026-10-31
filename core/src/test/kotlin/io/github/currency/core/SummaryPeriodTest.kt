@@ -2,6 +2,7 @@ package io.github.currency.core
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -23,6 +24,23 @@ class SummaryPeriodTest {
         val spring = SummaryPeriod.LAST_DAYS.window(at("2026-03-30T00:00"), zone, 2)
         assertEquals(23 * 3_600_000L, spring.second - spring.first)
         assertThrows(IllegalArgumentException::class.java) { SummaryPeriod.LAST_DAYS.window(now, zone, 0) }
+    }
+
+    @Test fun `specific days and ranges use whole calendar days and stop at now`() {
+        val now = at("2026-09-18T12:00")
+        val day = LocalDate.parse("2026-09-10")
+        assertEquals(at("2026-09-10T00:00") to at("2026-09-11T00:00"), SummaryPeriod.DAY.window(now, zone, first = day))
+        assertEquals(at("2026-09-18T00:00") to now, SummaryPeriod.DAY.window(now, zone, first = LocalDate.parse("2026-09-18")))
+        assertEquals(at("2026-09-10T00:00") to at("2026-09-13T00:00"),
+            SummaryPeriod.RANGE.window(now, zone, first = day, last = LocalDate.parse("2026-09-12")))
+        assertEquals(at("2026-09-10T00:00") to now,
+            SummaryPeriod.RANGE.window(now, zone, first = day, last = LocalDate.parse("2026-09-18")))
+        val fallBack = SummaryPeriod.DAY.window(now, zone, first = LocalDate.parse("2025-10-26"))
+        assertEquals(25 * 3_600_000L, fallBack.second - fallBack.first)
+        assertThrows(IllegalArgumentException::class.java) { SummaryPeriod.DAY.window(now, zone) }
+        assertThrows(IllegalArgumentException::class.java) {
+            SummaryPeriod.RANGE.window(now, zone, first = day, last = day.minusDays(1))
+        }
     }
 
     @Test fun `historical summaries clip completed sessions at both ends and retain sleep context`() {

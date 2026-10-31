@@ -38,7 +38,7 @@ private val Muted = Color(0xFF65716A)
 private val Warm = Color(0xFFAF583A)
 
 @Composable
-fun CurrencyApp(state: ScreenState, onChooseFile: () -> Unit, onOpenStt: () -> Unit) {
+fun CurrencyApp(state: ScreenState, onChooseFile: () -> Unit, onOpenStt: () -> Unit, onRecalibrate: () -> Unit = {}) {
     MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White,
         secondary = Forest, background = Paper, surface = Paper, onSurface = Ink,
         surfaceVariant = Color(0xFFE9ECE3), onSurfaceVariant = Muted)) {
@@ -73,7 +73,7 @@ fun CurrencyApp(state: ScreenState, onChooseFile: () -> Unit, onOpenStt: () -> U
                             0 -> Dashboard(state, onChooseFile)
                             1 -> ActivityLog(state.stored)
                             2 -> ActivityLog(state.stored, archived = true)
-                            else -> Rules(state.stored, onOpenStt)
+                            else -> Rules(state.stored, onOpenStt, onRecalibrate)
                         }
                     }
                 }
@@ -138,7 +138,7 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
     val trial = stored.trial ?: return
     val now = System.currentTimeMillis()
     val zone = ZoneId.of(trial.zoneId)
-    val total = Economy.account(Economy.totals(stored.snapshot, stored.kinds, trial.activatedAt, now, zone), trial)
+    val total = Economy.priced(stored.snapshot, stored.kinds, trial.activatedAt, now, trial).account()
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         if (state.error != null) item { ErrorCard(state.error, onChooseFile) }
         item {
@@ -161,8 +161,9 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
         }
         item {
             val (from, until) = SummaryRange("overview", SummaryPeriod.TODAY, now, zone)
-            val todayTime = Economy.totals(stored.snapshot, stored.kinds, maxOf(from, trial.activatedAt), until, zone, now)
-            val todayAccount = Economy.account(todayTime, trial)
+            val todayLedger = Economy.priced(stored.snapshot, stored.kinds, maxOf(from, trial.activatedAt), until, trial, now)
+            val todayTime = todayLedger.totals
+            val todayAccount = todayLedger.account()
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard("Earned", duration(todayTime.workMs + todayTime.sideMs + todayTime.choresMs), "+${decimal(todayAccount.earned)} C", Forest, Modifier.weight(1f))
@@ -173,21 +174,21 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
         }
         item {
             val (from, until) = SummaryRange("breakdown", SummaryPeriod.LAST_DAYS, now, zone)
-            val ledger = Economy.ledger(stored.snapshot, stored.kinds, maxOf(from, trial.activatedAt), until, zone, now)
+            val ledger = Economy.priced(stored.snapshot, stored.kinds, maxOf(from, trial.activatedAt), until, trial, now)
             val weekTime = ledger.totals
-            val weekAccount = Economy.account(weekTime, trial)
+            val weekAccount = ledger.account()
             Spacer(Modifier.height(12.dp))
             Surface(color = Color.White, shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     ValueRow("Work earned · ${duration(weekTime.workMs + weekTime.sideMs + weekTime.choresMs)}", "+${decimal(weekAccount.earned)} C", Forest)
-                    ValueRow("Svago · ${duration(weekTime.leisureMs)}", "−${decimal(Economy.account(Totals(leisureMs = weekTime.leisureMs), trial).spent)} C", Warm)
-                    ValueRow("Small costs · ${duration(weekTime.spendingMs - weekTime.leisureMs)}", "−${decimal(Economy.account(weekTime.copy(leisureMs = 0), trial).spent)} C", Warm)
+                    ValueRow("Svago · ${duration(weekTime.leisureMs)}", "−${decimal(ledger.account { Totals(leisureMs = it.leisureMs) }.spent)} C", Warm)
+                    ValueRow("Small costs · ${duration(weekTime.spendingMs - weekTime.leisureMs)}", "−${decimal(ledger.account { it.copy(leisureMs = 0) }.spent)} C", Warm)
                     HorizontalDivider(color = Paper)
                     ValueRow("Net change", "${decimal(weekAccount.balance)} C", Ink)
                 }
             }
             Spacer(Modifier.height(20.dp))
-            ActivityBreakdownChart(stored, activityBreakdown(stored.snapshot, ledger, trial, from, until, now))
+            ActivityBreakdownChart(stored, activityBreakdown(stored.snapshot, ledger, from, until, now))
         }
         item {
             Surface(color = Color(0xFFE8ECDC), shape = RoundedCornerShape(20.dp)) {
@@ -195,7 +196,8 @@ private fun Dashboard(state: ScreenState, onChooseFile: () -> Unit) {
                     Text("A steady exchange", fontWeight = FontWeight.SemiBold)
                     Text("50 minutes of main work earns 1 C.\n200 minutes of esplorazioni or sides earns 1 C.\n50 minutes of chores earns 0.1 C.\n${decimal(Economy.leisureMinutesPerCredit(trial), 1)} minutes of svago costs 1 C.\nCooking, travel and chargeable sleep cost 25% of svago; People / friends cost 5%.", lineHeight = 24.sp)
                     Text(if (trial.provisional) "Provisional rate: there wasn’t enough work and leisure history to calibrate."
-                        else "Calibrated once from your recent routine. Prices stay fixed during the trial.", fontSize = 12.sp, color = Muted, lineHeight = 18.sp)
+                        else if (trial.repricing != null) "Recalibrated from your data since the trial began. Earlier sessions keep their original price."
+                        else "Calibrated once from your recent routine. Prices stay fixed until you recalibrate in Rules.", fontSize = 12.sp, color = Muted, lineHeight = 18.sp)
                 }
             }
         }
@@ -263,30 +265,56 @@ private fun SummaryRange(key: String, default: SummaryPeriod, now: Long, zone: Z
         mutableStateOf(SummaryPeriod.entries.firstOrNull { it.name == preferences.getString(key, null) } ?: default)
     }
     var days by rememberSaveable(key) { mutableIntStateOf(preferences.getInt("$key.days", 7).coerceIn(1, 3650)) }
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    // Calendar dates are stored as epoch days so they keep meaning the same day in any zone.
+    var first by rememberSaveable(key) { mutableLongStateOf(preferences.getLong("$key.first", today.toEpochDay())) }
+    var last by rememberSaveable(key) { mutableLongStateOf(preferences.getLong("$key.last", today.toEpochDay())) }
     var expanded by remember { mutableStateOf(false) }
     var custom by rememberSaveable { mutableStateOf(false) }
+    var picking by rememberSaveable { mutableStateOf<SummaryPeriod?>(null) }
     var input by rememberSaveable { mutableStateOf("") }
-    fun select(value: SummaryPeriod, count: Int = days) {
+    fun select(value: SummaryPeriod, count: Int = days, from: Long = first, to: Long = last) {
         period = value
         days = count
-        preferences.edit().putString(key, value.name).putInt("$key.days", count).apply()
+        first = from
+        last = to
+        preferences.edit().putString(key, value.name).putInt("$key.days", count)
+            .putLong("$key.first", from).putLong("$key.last", to).apply()
     }
-    Box {
-        TextButton(onClick = { expanded = true }) {
-            Text(if (period == SummaryPeriod.LAST_DAYS) "Last $days days ▾" else "${period.label} ▾")
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SummaryPeriod.entries.forEach { option ->
-                DropdownMenuItem(text = { Text(option.label) }, onClick = {
-                    expanded = false
-                    if (option == SummaryPeriod.LAST_DAYS) {
-                        input = days.toString()
-                        custom = true
-                    } else select(option)
+    val short = DateTimeFormatter.ofPattern("d MMM")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            TextButton(onClick = { expanded = true }) {
+                Text(when (period) {
+                    SummaryPeriod.LAST_DAYS -> "Last $days days ▾"
+                    SummaryPeriod.DAY -> LocalDate.ofEpochDay(first).format(DateTimeFormatter.ofPattern("EEE d MMM yyyy")) + " ▾"
+                    SummaryPeriod.RANGE -> "${LocalDate.ofEpochDay(first).format(short)} – ${LocalDate.ofEpochDay(last).format(short)} ▾"
+                    else -> "${period.label} ▾"
                 })
             }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                SummaryPeriod.entries.forEach { option ->
+                    DropdownMenuItem(text = { Text(option.label) }, onClick = {
+                        expanded = false
+                        when (option) {
+                            SummaryPeriod.LAST_DAYS -> { input = days.toString(); custom = true }
+                            SummaryPeriod.DAY, SummaryPeriod.RANGE -> picking = option
+                            else -> select(option)
+                        }
+                    })
+                }
+            }
+        }
+        if (period == SummaryPeriod.DAY) {
+            TextButton(onClick = { select(SummaryPeriod.DAY, from = first - 1, to = first - 1) }) { Text("‹ Previous") }
+            TextButton(enabled = first < today.toEpochDay(),
+                onClick = { select(SummaryPeriod.DAY, from = first + 1, to = first + 1) }) { Text("Next ›") }
         }
     }
+    picking?.let { mode -> SummaryDatePicker(mode, first, last, today, onDismiss = { picking = null }) { from, to ->
+        select(mode, from = from, to = to)
+        picking = null
+    } }
     if (custom) {
         val count = input.toIntOrNull()?.takeIf { it in 1..3650 }
         AlertDialog(onDismissRequest = { custom = false }, title = { Text("Last N days") },
@@ -302,13 +330,47 @@ private fun SummaryRange(key: String, default: SummaryPeriod, now: Long, zone: Z
             }) { Text("Apply") } },
             dismissButton = { TextButton(onClick = { custom = false }) { Text("Cancel") } })
     }
-    val window = period.window(now, zone, days)
+    val window = period.window(now, zone, days, LocalDate.ofEpochDay(first), LocalDate.ofEpochDay(last))
     val format = DateTimeFormatter.ofPattern("d MMM yyyy")
     val start = Instant.ofEpochMilli(window.first).atZone(zone).format(format)
-    val end = Instant.ofEpochMilli(if (period in setOf(SummaryPeriod.LAST_WEEK, SummaryPeriod.LAST_MONTH)) window.second - 1 else window.second)
+    val end = Instant.ofEpochMilli(if (window.second < now) window.second - 1 else window.second)
         .atZone(zone).format(format)
     Text("$start – $end · Since trial start only", color = Muted, fontSize = 11.sp)
     return window
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SummaryDatePicker(mode: SummaryPeriod, first: Long, last: Long, today: LocalDate,
+                              onDismiss: () -> Unit, onApply: (Long, Long) -> Unit) {
+    // Material pickers report UTC midnights; convert through epoch days, never through the trial zone.
+    val dayMs = 86_400_000L
+    val selectable = object : SelectableDates {
+        override fun isSelectableDate(utcTimeMillis: Long) = Math.floorDiv(utcTimeMillis, dayMs) <= today.toEpochDay()
+        override fun isSelectableYear(year: Int) = year <= today.year
+    }
+    if (mode == SummaryPeriod.DAY) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = first * dayMs, selectableDates = selectable)
+        DatePickerDialog(onDismissRequest = onDismiss,
+            confirmButton = { TextButton(enabled = state.selectedDateMillis != null, onClick = {
+                val day = Math.floorDiv(state.selectedDateMillis!!, dayMs)
+                onApply(day, day)
+            }) { Text("Apply") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }) {
+            DatePicker(state)
+        }
+    } else {
+        val state = rememberDateRangePickerState(initialSelectedStartDateMillis = first * dayMs,
+            initialSelectedEndDateMillis = last * dayMs, selectableDates = selectable)
+        DatePickerDialog(onDismissRequest = onDismiss,
+            confirmButton = { TextButton(enabled = state.selectedStartDateMillis != null, onClick = {
+                val from = Math.floorDiv(state.selectedStartDateMillis!!, dayMs)
+                onApply(from, state.selectedEndDateMillis?.let { Math.floorDiv(it, dayMs) } ?: from)
+            }) { Text("Apply") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }) {
+            DateRangePicker(state, Modifier.weight(1f))
+        }
+    }
 }
 
 @Composable
@@ -328,7 +390,7 @@ private fun ActivityLog(stored: StoredState, archived: Boolean = false) {
     val activities = stored.snapshot.activities.associateBy { it.id }
     val now = System.currentTimeMillis()
     val ledger = remember(stored, now) {
-        Economy.ledger(stored.snapshot, stored.kinds, trial.activatedAt, now, ZoneId.of(trial.zoneId))
+        Economy.priced(stored.snapshot, stored.kinds, trial.activatedAt, now, trial)
     }
     val records = stored.snapshot.records.filter { it.end > trial.activatedAt && it.end <= now && activities[it.activityId]?.archived == archived && (archived || stored.kinds[it.activityId] != Kind.NEUTRAL) }
         .sortedByDescending { it.end }.take(100)
@@ -351,7 +413,7 @@ private fun ActivityLog(stored: StoredState, archived: Boolean = false) {
         items(records, key = { it.id }) { record ->
             val paused = record.tags.any { stored.snapshot.tags[it]?.trim()?.equals("Pausa", true) == true }
             val kind = stored.kinds[record.activityId]
-            val credits = Economy.account(ledger.sessions[record.id] ?: Totals(), trial).balance
+            val credits = ledger.sessionAccount(record.id).balance
             Surface(color = Color.White, shape = RoundedCornerShape(16.dp)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -373,8 +435,14 @@ private fun ActivityLog(stored: StoredState, archived: Boolean = false) {
 }
 
 @Composable
-private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
+private fun Rules(stored: StoredState, onOpenStt: () -> Unit, onRecalibrate: () -> Unit) {
     val trial = stored.trial ?: return
+    val now = System.currentTimeMillis()
+    val proposal = remember(stored, now / 60_000) { Economy.recalibrate(stored.snapshot, stored.kinds, trial, now) }
+    // Recalibrating on less than two weeks of trial data would let a single unusual week set the price.
+    // Only one repricing time is stored, so a second recalibration would reprice the sessions in between.
+    val canRecalibrate = trial.repricing == null && now - trial.activatedAt >= Duration.ofDays(14).toMillis() && !proposal.provisional
+    var confirming by rememberSaveable { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             Text("Simple rules.\nAutomatic accounting.", fontSize = 29.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold)
@@ -391,7 +459,7 @@ private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
                     HorizontalDivider(color = Paper)
                     Text("Negative balances are allowed. No interest, penalties, expiry, or balance cap. Exercise and unlisted activities are neutral.", color = Muted, lineHeight = 23.sp)
                     Text("Sleep from 12:00 to 18:00 costs 25% of svago. Each night runs from 18:00 to noon: only recorded sleep above nine hours costs credits. Split sessions share the allowance; overlapping sleep counts once. Afternoon sleep is separate. Time zone: ${trial.zoneId}.", color = Muted, lineHeight = 23.sp)
-                    Text("Small costs and chore earnings apply to all sessions since the trial began, including earlier sessions. Your original svago rate stays unchanged.", color = Muted, lineHeight = 23.sp)
+                    Text("Small costs and chore earnings apply to all sessions since the trial began, including earlier sessions.", color = Muted, lineHeight = 23.sp)
                     Text("Thesis, oxford, zhijing, aria and Work-category activities earn at the main rate. Esplorazioni and sides earn 25%; chores earn 10%, even in Work. Lab tags are equivalent; Pausa earns nothing.", color = Muted, lineHeight = 23.sp)
                 }
             }
@@ -399,9 +467,22 @@ private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
         item {
             SectionLabel("Your trial", "14 days")
             Spacer(Modifier.height(10.dp))
-            Text("Started ${timestamp(trial.activatedAt)}. Initial trial ends ${timestamp(trial.endsAt)}. The same rates continue afterward until a future version supports a review.", color = Muted, lineHeight = 23.sp)
+            Text("Started ${timestamp(trial.activatedAt)}. Initial trial ${if (now < trial.endsAt) "ends" else "ended"} ${timestamp(trial.endsAt)}; rates continue until you recalibrate.", color = Muted, lineHeight = 23.sp)
             Spacer(Modifier.height(8.dp))
-            Text("Baseline: ${duration(trial.baseline.workMs)} main work, ${duration(trial.baseline.sideMs)} side activities and ${duration(trial.baseline.leisureMs)} svago over the preceding 28 days. ${if (trial.provisional) "A provisional 50:50 rate is in use." else "The leisure price makes baseline spending 5% higher than baseline earnings."}", color = Muted, lineHeight = 23.sp)
+            val original = trial.original()
+            Text("Original baseline: ${duration(trial.baseline.workMs)} main work, ${duration(trial.baseline.sideMs)} side activities and ${duration(trial.baseline.leisureMs)} svago over the 28 days before the trial. ${if (original.provisional) "A provisional 50:50 rate was used." else "Svago cost ${decimal(Economy.leisureMinutesPerCredit(original), 1)} minutes per credit."}", color = Muted, lineHeight = 23.sp)
+            trial.repricing?.let { repricing ->
+                Spacer(Modifier.height(8.dp))
+                Text("Recalibrated ${timestamp(repricing.at)} from ${duration(repricing.baseline.workMs)} main work, ${duration(repricing.baseline.sideMs)} side activities and ${duration(repricing.baseline.leisureMs)} svago since the trial began. Sessions before then keep the earlier price.", color = Muted, lineHeight = 23.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Each price makes its baseline's svago spending 5% higher than its work earnings.", color = Muted, lineHeight = 23.sp)
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = { confirming = true }, enabled = canRecalibrate, modifier = Modifier.fillMaxWidth()) {
+                Text("Recalibrate from data since trial start")
+            }
+            if (!canRecalibrate) Text(if (trial.repricing != null) "The price has already been recalibrated."
+                else "Available after 14 days of trial data with both work and svago.", color = Muted, fontSize = 12.sp)
         }
         item { SectionLabel("Activity mapping", "Kept across renames") }
         items(stored.activities.filter { it.present && !it.archived }.sortedWith(compareBy({ it.kind }, { it.name })), key = { it.id }) { activity ->
@@ -415,6 +496,10 @@ private fun Rules(stored: StoredState, onOpenStt: () -> Unit) {
         }
         item { SyncFooter(stored, false) }
     }
+    if (confirming) AlertDialog(onDismissRequest = { confirming = false }, title = { Text("Recalibrate svago price?") },
+        text = { Text("Svago would cost 1 C per ${decimal(Economy.leisureMinutesPerCredit(proposal), 1)} minutes instead of ${decimal(Economy.leisureMinutesPerCredit(trial), 1)}, based on everything recorded since the trial began. Small costs change in proportion. Sessions until now keep their current credits; your balance does not change.", lineHeight = 22.sp) },
+        confirmButton = { TextButton(onClick = { confirming = false; onRecalibrate() }) { Text("Recalibrate") } },
+        dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } })
 }
 
 @Composable

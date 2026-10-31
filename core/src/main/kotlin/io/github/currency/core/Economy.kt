@@ -17,17 +17,34 @@ data class Totals(
         sideMs + other.sideMs, cookingMs + other.cookingMs, travelMs + other.travelMs,
         friendsMs + other.friendsMs, sleepMs + other.sleepMs, choresMs + other.choresMs)
 }
+/** A later price anchor; sessions from [at] onward use it, earlier sessions keep the original price. */
+data class Repricing(val at: Long, val baselineStart: Long, val baseline: Totals)
 data class Trial(val activatedAt: Long, val baselineStart: Long, val baselineEnd: Long, val baseline: Totals,
-    val zoneId: String = ZoneId.systemDefault().id) {
-    val provisional get() = (baseline.workMs == 0L && baseline.sideMs == 0L) || baseline.leisureMs == 0L
+    val zoneId: String = ZoneId.systemDefault().id, val repricing: Repricing? = null) {
+    /** The baseline behind the current price. */
+    val price get() = repricing?.baseline ?: baseline
+    val provisional get() = (price.workMs == 0L && price.sideMs == 0L) || price.leisureMs == 0L
     val endsAt get() = activatedAt + Duration.ofDays(14).toMillis()
+    fun original() = copy(repricing = null)
 }
 data class Account(val earned: BigDecimal, val spent: BigDecimal) {
+    operator fun plus(other: Account) = Account(earned + other.earned, spent + other.spent)
     val balance: BigDecimal get() = earned - spent
     val workMinutesToZero: BigDecimal get() = if (balance.signum() < 0) balance.negate().multiply(BigDecimal(50)) else BigDecimal.ZERO
 }
 /** Allocated durations use the same sweep as the balance; masked records have zero credit. */
 data class Ledger(val totals: Totals = Totals(), val sessions: Map<Long, Totals> = emptyMap())
+
+/** A ledger split at the repricing time, so each part is priced at the rate in effect then. */
+data class PricedLedger(val before: Ledger, val after: Ledger, val trial: Trial) {
+    val totals get() = before.totals + after.totals
+    fun session(id: Long): Totals = (before.sessions[id] ?: Totals()) + (after.sessions[id] ?: Totals())
+    /** [pick] selects part of the totals, such as svago alone, before pricing each side. */
+    fun account(pick: (Totals) -> Totals = { it }) =
+        Economy.account(pick(before.totals), trial.original()) + Economy.account(pick(after.totals), trial)
+    fun sessionAccount(id: Long) = Economy.account(before.sessions[id] ?: Totals(), trial.original()) +
+        Economy.account(after.sessions[id] ?: Totals(), trial)
+}
 
 object Economy {
     private val creditMs = BigDecimal(3_000_000)
@@ -149,9 +166,28 @@ object Economy {
 
     fun calibrate(snapshot: Snapshot, kinds: Map<Long, Kind>, activatedAt: Long): Trial {
         val start = activatedAt - Duration.ofDays(28).toMillis()
-        // The original work/svago baseline remains the price anchor; small costs are added afterward.
+        return Trial(activatedAt, start, activatedAt, baseline(snapshot, kinds, start, activatedAt))
+    }
+
+    /** Re-anchors the price on everything recorded since the trial began; earlier sessions keep their price. */
+    fun recalibrate(snapshot: Snapshot, kinds: Map<Long, Kind>, trial: Trial, now: Long): Trial =
+        trial.copy(repricing = Repricing(now, trial.activatedAt,
+            baseline(snapshot, kinds, trial.activatedAt, now, ZoneId.of(trial.zoneId))))
+
+    // The work/svago baseline is the price anchor; small costs are added afterward.
+    private fun baseline(snapshot: Snapshot, kinds: Map<Long, Kind>, from: Long, until: Long,
+        zone: ZoneId = ZoneId.systemDefault()): Totals {
         val baselineKinds = kinds.mapValues { (_, kind) -> if (kind in setOf(Kind.WORK, Kind.SIDE, Kind.LEISURE)) kind else Kind.NEUTRAL }
-        return Trial(activatedAt, start, activatedAt, totals(snapshot, baselineKinds, start, activatedAt))
+        return totals(snapshot, baselineKinds, from, until, zone)
+    }
+
+    fun priced(snapshot: Snapshot, kinds: Map<Long, Kind>, from: Long, until: Long, trial: Trial,
+        completedThrough: Long = until): PricedLedger {
+        val zone = ZoneId.of(trial.zoneId)
+        val at = trial.repricing?.at ?: return PricedLedger(ledger(snapshot, kinds, from, until, zone, completedThrough), Ledger(), trial)
+        return PricedLedger(
+            if (from < at) ledger(snapshot, kinds, from, minOf(until, at), zone, completedThrough) else Ledger(),
+            if (until > at) ledger(snapshot, kinds, maxOf(from, at), until, zone, completedThrough) else Ledger(), trial)
     }
 
     private fun weightedWork(totals: Totals): BigDecimal = BigDecimal(totals.workMs) + BigDecimal(totals.sideMs).multiply(BigDecimal("0.25"))
@@ -163,12 +199,12 @@ object Economy {
         val earned = (weightedWork(totals) + BigDecimal(totals.choresMs).multiply(BigDecimal("0.10"))).divide(creditMs, context)
         // Preserve the reference ratio; don't round the rate per minute or per record.
         val spent = if (trial.provisional) weightedSpending(totals).divide(creditMs, context) else
-            weightedSpending(totals).multiply(weightedWork(trial.baseline)).multiply(challenge)
-                .divide(BigDecimal(trial.baseline.leisureMs).multiply(creditMs), context)
+            weightedSpending(totals).multiply(weightedWork(trial.price)).multiply(challenge)
+                .divide(BigDecimal(trial.price.leisureMs).multiply(creditMs), context)
         return Account(earned, spent)
     }
 
     fun leisureMinutesPerCredit(trial: Trial): BigDecimal = if (trial.provisional) BigDecimal(50) else
-        BigDecimal(trial.baseline.leisureMs).multiply(BigDecimal(50))
-            .divide(weightedWork(trial.baseline).multiply(challenge), context)
+        BigDecimal(trial.price.leisureMs).multiply(BigDecimal(50))
+            .divide(weightedWork(trial.price).multiply(challenge), context)
 }

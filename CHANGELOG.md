@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-10-31
+
+- Work with STT 1.61, which moved external backup requests to a new receiver; Currency now resolves the receiver instead of naming it.
+- Add **Specific day** (with previous/next) and **Date range** options to both dashboard summaries.
+- Add a one-time **Recalibrate** action in Rules that re-anchors the svago price on all data since the trial began. Sessions before recalibration keep their price, so the balance is unchanged.
+- Upgrade the database to version 6 without changing the trial or original price.
+
 ## 0.3.0 — 2026-09-09
 
 - Charge cooking and travel at 10% of the svago rate, and friends at 5%.

@@ -17,7 +17,7 @@ Open Currency to see your balance, recent activity, and how much work would brin
 
 | View | What you see |
 | --- | --- |
-| **Summary** | Balance, two independently selectable day/week/month credit summaries, and the current exchange rate |
+| **Summary** | Balance, two independently selectable credit summaries (relative periods, a specific day, or a date range), and the current exchange rate |
 | **Activity** | Recent completed sessions with credits earned or spent |
 | **Archived** | Activities archived in STT and their recent sessions, kept out of the main lists |
 | **Rules** | Earning rates, activity mappings, and the trial's calibration |
@@ -27,11 +27,11 @@ Open Currency to see your balance, recent activity, and how much work would brin
 - Keeps your trial and document connection across app updates.
 - Stores data locally, with no internet permission, analytics, cloud backup, or background service.
 
-This is a personal experiment with fixed activity mappings, not a general-purpose habit coach. The current version is **0.3.0**. See the [changelog](CHANGELOG.md).
+This is a personal experiment with fixed activity mappings, not a general-purpose habit coach. The current version is **0.4.0**. See the [changelog](CHANGELOG.md).
 
 ## Get started
 
-You'll need **Android 8.0+** and **Simple Time Tracker**. The integration has been tested against STT **1.59**.
+You'll need **Android 8.0+** and **Simple Time Tracker**. The integration has been tested against STT **1.59** and **1.61**.
 
 1. [Build and install Currency](#build-and-install).
 2. In STT settings, enable **Automatic backup** and choose a local backup document that includes records.
@@ -55,7 +55,7 @@ The first successful import starts your balance at **zero**. Earlier records nev
 
 Main work includes activities in STT's `Work` category and the named projects `thesis`, `oxford`, `zhijing`, and `aria`. Names are case-insensitive. `Pausa` tags suppress work earnings; all `svago` still costs.
 
-The leisure price uses the preceding 28 days so that baseline svago spending equals 105% of its work earnings. Small costs are additional. It stays fixed during the 14-day trial and continues afterward. Negative balances are allowed; there are no penalties, caps, decay, streak resets, or neglect bonuses.
+The leisure price uses the preceding 28 days so that baseline svago spending equals 105% of its work earnings. Small costs are additional. It stays fixed during the 14-day trial and continues afterward. After the trial, **Recalibrate** in Rules can re-anchor it once on everything recorded since the trial began; earlier sessions keep their price. Negative balances are allowed; there are no penalties, caps, decay, streak resets, or neglect bonuses.
 
 Afternoon means 12:00–18:00. Nights run from 18:00 to the following noon; split sleep sessions share a nine-hour allowance. The accounting time zone is saved at setup or upgrade.
 

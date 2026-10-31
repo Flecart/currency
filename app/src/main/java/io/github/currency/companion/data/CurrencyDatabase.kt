@@ -17,8 +17,20 @@ data class TrialRow(
     val baselineWorkMs: Long, val baselineLeisureMs: Long,
     @ColumnInfo(defaultValue = "0") val baselineSideMs: Long = 0,
     @ColumnInfo(defaultValue = "'UTC'") val zoneId: String = java.time.ZoneId.systemDefault().id,
+    val repricedAt: Long? = null, val repriceBaselineStart: Long? = null,
+    val repriceWorkMs: Long? = null, val repriceLeisureMs: Long? = null, val repriceSideMs: Long? = null,
 ) {
-    fun domain() = Trial(activatedAt, baselineStart, baselineEnd, Totals(baselineWorkMs, baselineLeisureMs, baselineSideMs), zoneId)
+    fun domain() = Trial(activatedAt, baselineStart, baselineEnd, Totals(baselineWorkMs, baselineLeisureMs, baselineSideMs), zoneId,
+        repricedAt?.let { Repricing(it, repriceBaselineStart ?: activatedAt, Totals(repriceWorkMs ?: 0, repriceLeisureMs ?: 0, repriceSideMs ?: 0)) })
+
+    companion object {
+        fun of(trial: Trial) = TrialRow(activatedAt = trial.activatedAt, baselineStart = trial.baselineStart,
+            baselineEnd = trial.baselineEnd, baselineWorkMs = trial.baseline.workMs, baselineLeisureMs = trial.baseline.leisureMs,
+            baselineSideMs = trial.baseline.sideMs, zoneId = trial.zoneId,
+            repricedAt = trial.repricing?.at, repriceBaselineStart = trial.repricing?.baselineStart,
+            repriceWorkMs = trial.repricing?.baseline?.workMs, repriceLeisureMs = trial.repricing?.baseline?.leisureMs,
+            repriceSideMs = trial.repricing?.baseline?.sideMs)
+    }
 }
 @Entity(tableName = "sync")
 data class SyncRow(
@@ -43,10 +55,18 @@ interface CurrencyDao {
     @Query("UPDATE activities SET present = 0") suspend fun markActivitiesAbsent()
 }
 
-@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 5, exportSchema = true)
+@Database(entities = [ActivityRow::class, RecordRow::class, TagRow::class, TrialRow::class, SyncRow::class], version = 6, exportSchema = true)
 abstract class CurrencyDatabase : RoomDatabase() {
     abstract fun dao(): CurrencyDao
     companion object {
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (column in listOf("repricedAt", "repriceBaselineStart", "repriceWorkMs", "repriceLeisureMs", "repriceSideMs")) {
+                    db.execSQL("ALTER TABLE trial ADD COLUMN $column INTEGER")
+                }
+            }
+        }
+
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE activities SET kind = 'FRIENDS' WHERE lower(trim(name)) = 'people'")
@@ -116,11 +136,16 @@ class CurrencyRepository(private val db: CurrencyDatabase) {
             dao.putRecords(snapshot.records.map { RecordRow(it.id, it.activityId, it.start, it.end, it.tags.sorted().joinToString(",")) })
         }
         if (dao.trial() == null) {
-            val trial = Economy.calibrate(snapshot, kinds, now)
-            dao.putTrial(TrialRow(activatedAt = trial.activatedAt, baselineStart = trial.baselineStart,
-                baselineEnd = trial.baselineEnd, baselineWorkMs = trial.baseline.workMs, baselineLeisureMs = trial.baseline.leisureMs, baselineSideMs = trial.baseline.sideMs, zoneId = trial.zoneId))
+            dao.putTrial(TrialRow.of(Economy.calibrate(snapshot, kinds, now)))
         }
         dao.putSync(SyncRow(uri = uri, documentName = documentName, hash = hash, lastRead = now,
             lastChanged = if (previous?.hash == hash) previous.lastChanged else now))
+    }
+
+    /** Re-anchors the svago price on the stored records since the trial began; earlier sessions keep their price. */
+    suspend fun recalibrate(now: Long) = db.withTransaction {
+        val state = load()
+        val trial = state.trial ?: return@withTransaction
+        db.dao().putTrial(TrialRow.of(Economy.recalibrate(state.snapshot, state.kinds, trial, now)))
     }
 }

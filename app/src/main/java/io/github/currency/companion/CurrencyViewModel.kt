@@ -45,6 +45,17 @@ class CurrencyViewModel(application: Application) : AndroidViewModel(application
         runCatching { app.gateway.openStt() }.onFailure { mutable.value = mutable.value.copy(error = it.message) }
     }
 
+    suspend fun recalibrate() {
+        mutex.lock()
+        try {
+            val stored = withContext(Dispatchers.IO) {
+                app.repository.recalibrate(System.currentTimeMillis())
+                app.repository.load()
+            }
+            mutable.value = mutable.value.copy(stored = stored)
+        } finally { mutex.unlock() }
+    }
+
     suspend fun refresh() {
         if (!mutex.tryLock()) return
         try {

@@ -13,6 +13,47 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MigrationTest {
+    @Test fun versionFiveUpgradeKeepsTrialAndRecalibratesOnlyLaterSessions() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-v5-test.db"
+        context.deleteDatabase(name)
+        val path = context.getDatabasePath(name)
+        path.parentFile!!.mkdirs()
+        val schema = JSONObject(InstrumentationRegistry.getInstrumentation().context.assets
+            .open("currency-v5.json").bufferedReader().use { it.readText() }).getJSONObject("database")
+        SQLiteDatabase.openOrCreateDatabase(path, null).use { old ->
+            val entities = schema.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val entity = entities.getJSONObject(i)
+                old.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+            }
+            val setup = schema.getJSONArray("setupQueries")
+            for (i in 0 until setup.length()) old.execSQL(setup.getString(i))
+            old.execSQL("INSERT INTO activities VALUES (1, 'Thesis', 'WORK', 1, 0), (2, 'svago', 'LEISURE', 1, 0)")
+            old.execSQL("INSERT INTO records VALUES (1, 1, 0, 36000000, ''), (2, 2, 36000000, 72000000, '')")
+            old.execSQL("INSERT INTO trial VALUES (1, 0, 0, 0, 360000000, 378000000, 0, 'UTC')")
+            old.execSQL("INSERT INTO sync VALUES (1, 'content://test/backup', 'backup', 'same', 1000, 1000)")
+            old.version = 5
+        }
+        val db = Room.databaseBuilder(context, CurrencyDatabase::class.java, name)
+            .addMigrations(CurrencyDatabase.MIGRATION_5_6).build()
+        try {
+            val repository = CurrencyRepository(db)
+            val before = repository.load()
+            assertNull(before.trial!!.repricing)
+            assertEquals(Totals(360_000_000, 378_000_000), before.trial!!.baseline)
+            val balance = Economy.priced(before.snapshot, before.kinds, 0, 72_000_000, before.trial!!).account()
+            repository.recalibrate(72_000_000)
+            val after = repository.load()
+            assertEquals(Repricing(72_000_000, 0, Totals(36_000_000, 36_000_000)), after.trial!!.repricing)
+            assertEquals(Totals(360_000_000, 378_000_000), after.trial!!.baseline)
+            assertEquals(balance, Economy.priced(after.snapshot, after.kinds, 0, 72_000_000, after.trial!!).account())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test fun versionFourUpgradeChargesExistingPeopleAndPreservesTrial() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "migration-v4-test.db"
@@ -36,7 +77,7 @@ class MigrationTest {
             old.version = 4
         }
         val db = Room.databaseBuilder(context, CurrencyDatabase::class.java, name)
-            .addMigrations(CurrencyDatabase.MIGRATION_4_5).build()
+            .addMigrations(CurrencyDatabase.MIGRATION_4_5, CurrencyDatabase.MIGRATION_5_6).build()
         try {
             val stored = CurrencyRepository(db).load()
             assertEquals(Kind.FRIENDS, stored.kinds[1])
@@ -77,7 +118,7 @@ class MigrationTest {
             old.version = 2
         }
         val db = Room.databaseBuilder(context, CurrencyDatabase::class.java, name)
-            .addMigrations(CurrencyDatabase.MIGRATION_2_3, CurrencyDatabase.MIGRATION_3_4, CurrencyDatabase.MIGRATION_4_5).build()
+            .addMigrations(CurrencyDatabase.MIGRATION_2_3, CurrencyDatabase.MIGRATION_3_4, CurrencyDatabase.MIGRATION_4_5, CurrencyDatabase.MIGRATION_5_6).build()
         try {
             val stored = CurrencyRepository(db).load()
             assertEquals(Totals(3_000_000, 3_000_000, 6_000_000), stored.trial!!.baseline)
@@ -121,7 +162,7 @@ class MigrationTest {
             old.version = 1
         }
         val db = Room.databaseBuilder(context, CurrencyDatabase::class.java, name)
-            .addMigrations(CurrencyDatabase.MIGRATION_1_2, CurrencyDatabase.MIGRATION_2_3, CurrencyDatabase.MIGRATION_3_4, CurrencyDatabase.MIGRATION_4_5).build()
+            .addMigrations(CurrencyDatabase.MIGRATION_1_2, CurrencyDatabase.MIGRATION_2_3, CurrencyDatabase.MIGRATION_3_4, CurrencyDatabase.MIGRATION_4_5, CurrencyDatabase.MIGRATION_5_6).build()
         try {
             val repository = CurrencyRepository(db)
             val stored = repository.load()

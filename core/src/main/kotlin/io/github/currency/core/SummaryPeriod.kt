@@ -2,15 +2,20 @@ package io.github.currency.core
 
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
 enum class SummaryPeriod(val label: String) {
     TODAY("Today"), LAST_DAYS("Last N days"), THIS_WEEK("This week"),
-    LAST_WEEK("Last week"), THIS_MONTH("This month"), LAST_MONTH("Last month");
+    LAST_WEEK("Last week"), THIS_MONTH("This month"), LAST_MONTH("Last month"),
+    DAY("Specific day"), RANGE("Date range");
 
-    /** Calendar boundaries in the trial zone; rolling days include today. End is exclusive. */
-    fun window(now: Long, zone: ZoneId, days: Int = 7): Pair<Long, Long> {
+    /**
+     * Calendar boundaries in the trial zone; rolling days include today. End is exclusive.
+     * DAY uses [first]; RANGE covers [first] through [last] inclusive. Both stop at [now].
+     */
+    fun window(now: Long, zone: ZoneId, days: Int = 7, first: LocalDate? = null, last: LocalDate? = null): Pair<Long, Long> {
         require(days in 1..3650)
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -22,10 +27,14 @@ enum class SummaryPeriod(val label: String) {
             LAST_WEEK -> monday.minusWeeks(1)
             THIS_MONTH -> month
             LAST_MONTH -> month.minusMonths(1)
+            DAY, RANGE -> requireNotNull(first)
         }
         val end = when (this) {
             LAST_WEEK -> monday.atStartOfDay(zone).toInstant().toEpochMilli()
             LAST_MONTH -> month.atStartOfDay(zone).toInstant().toEpochMilli()
+            DAY -> minOf(now, start.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+            RANGE -> requireNotNull(last).also { require(!it.isBefore(start)) }
+                .let { minOf(now, it.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()) }
             else -> now
         }
         return start.atStartOfDay(zone).toInstant().toEpochMilli() to end

@@ -53,7 +53,9 @@ A new trial examines the 28 days before activation. Its fixed leisure price make
 
 The trial starts at zero. Pre-trial records calibrate the price but create no credits or debt. A completed session crossing activation counts only its post-activation portion. Records ending in the future are excluded until they have ended.
 
-The initial trial lasts 14 days. Rates continue unchanged afterward; there is no automated price adjustment or constitutional review UI.
+The initial trial lasts 14 days. Rates continue unchanged afterward until recalibrated.
+
+**Recalibrate** in Rules is available once, after at least 14 days of trial data with both work and svago. It applies the same 105% rule to everything recorded since trial activation (main work, side activities, and svago only) and saves that baseline with the recalibration time. Completed time before that moment keeps the original price, and time after it uses the new one. A session crossing the boundary is split. The balance at the moment of recalibration is unchanged. Small costs keep their relative prices.
 
 ## Corrections and upgrades
 
@@ -61,11 +63,13 @@ Accepted snapshots replace completed records atomically. Repeated imports do not
 
 Version 0.2 upgrades existing databases in place. It applies the named main-work and side-activity classifications to previously recorded trial sessions, so the balance can change. The original trial start and svago price remain fixed. Archive flags are imported again even when the source file's contents are unchanged.
 
+Database version 6 adds optional recalibration columns to the trial. Existing trials keep their original price until recalibrated.
+
 Version 0.3 migrates existing activities named cooking, travel, friends, and sleep to the new classifications, including archived activities. Costs recalculate all completed sessions since trial activation. The baseline, svago price, records, and backup connection are preserved. The upgrade saves the device's current time zone for sleep accounting and dashboard day boundaries; existing session timestamps remain displayed in the device's viewing time zone.
 
 Database version 4 reclassifies existing activities named chores, including archived activities. Chore earnings apply to completed sessions since trial activation; the baseline and svago price stay fixed.
 
-Both dashboard summaries have independent, remembered periods: today, last N days (including today), this/last Monday-based week, and this/last calendar month. Earnings, spending, and net change are shown in credits. Dates use the trial time zone and only post-activation time counts. Completed sessions crossing a period boundary contribute only their overlapping time. Cooking, travel, and chargeable sleep now cost 25% of svago, recalculated since trial activation; friends remain at 5%.
+Both dashboard summaries have independent, remembered periods: today, last N days (including today), this/last Monday-based week, this/last calendar month, a specific calendar day, or an inclusive date range. Specific days can be stepped with previous/next; future dates cannot be selected. Earnings, spending, and net change are shown in credits. Dates use the trial time zone and only post-activation time counts. Completed sessions crossing a period boundary contribute only their overlapping time. Cooking, travel, and chargeable sleep now cost 25% of svago, recalculated since trial activation; friends remain at 5%.
 
 The second summary includes a per-activity credit breakdown for its selected period, ordered by absolute credits. Bars share a common scale, with earnings in green and spending in orange; filters select all, earning, spending, or zero-credit activities. Recorded hours include overlapping and paused sessions; counted hours use the ledger allocation and exclude free/neutral time. Archived activities are included. Activity credits display four decimals (smaller nonzero amounts are marked explicitly), while account calculations retain full precision.
 

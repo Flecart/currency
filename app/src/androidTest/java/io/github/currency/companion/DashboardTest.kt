@@ -100,7 +100,18 @@ class DashboardTest {
         compose.onNodeWithText("Summary").performClick()
         compose.onNodeWithText("Last month ▾").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Last 14 days ▾").performScrollTo().assertIsDisplayed()
-        compose.runOnIdle { prefs.edit().clear().commit() }
+        compose.onNodeWithText("Last month ▾").performScrollTo().performClick()
+        compose.onNodeWithText("Specific day").performClick()
+        compose.onNodeWithText("Apply").performClick()
+        val today = java.time.LocalDate.now(java.time.ZoneId.systemDefault())
+        compose.onNodeWithText(today.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM yyyy")) + " ▾").assertExists()
+        compose.onNodeWithText("‹ Previous").performClick()
+        compose.onNodeWithText(today.minusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM yyyy")) + " ▾").assertExists()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals("DAY", prefs.getString("overview", null))
+            org.junit.Assert.assertEquals(today.minusDays(1).toEpochDay(), prefs.getLong("overview.first", 0))
+            prefs.edit().clear().commit()
+        }
     }
 
     @Test fun breakdownShowsActivityHoursCreditsAndSpendingFilter() {

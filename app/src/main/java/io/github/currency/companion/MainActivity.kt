@@ -26,7 +26,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { model.refreshLoop() } }
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            CurrencyApp(state, onChooseFile = { pickBackup.launch(arrayOf("*/*")) }, onOpenStt = model::openStt)
+            CurrencyApp(state, onChooseFile = { pickBackup.launch(arrayOf("*/*")) }, onOpenStt = model::openStt,
+                onRecalibrate = { lifecycleScope.launch { model.recalibrate() } })
         }
     }
 }
